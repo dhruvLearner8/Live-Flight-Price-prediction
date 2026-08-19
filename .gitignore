@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Large raw / intermediate data (too big for git, regenerate via scripts/)
+itineraries.csv
+archive.zip
+flight_sample.csv
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# MLflow / experiment artifacts
+mlruns/
+mlartifacts/
+
+# OS
+.DS_Store
