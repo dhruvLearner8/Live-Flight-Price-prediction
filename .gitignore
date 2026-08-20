@@ -21,6 +21,7 @@ features.csv
 # MLflow / experiment artifacts
 mlruns/
 mlartifacts/
+mlflow.db
 
 # OS
 .DS_Store
