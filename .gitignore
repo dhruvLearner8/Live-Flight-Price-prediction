@@ -13,6 +13,7 @@ wheels/
 itineraries.csv
 archive.zip
 flight_sample.csv
+features.csv
 
 # Notebook checkpoints
 .ipynb_checkpoints/
