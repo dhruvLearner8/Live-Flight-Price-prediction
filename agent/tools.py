@@ -6,7 +6,7 @@ own before wiring them together.
 """
 import os
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import requests
 from dotenv import load_dotenv
@@ -140,6 +140,33 @@ def get_price_prediction(
     response = requests.post(PREDICTION_API_URL, json=payload, timeout=30)
     response.raise_for_status()
     return response.json()["predictedFare"]
+
+
+def get_price_prediction_next_7_days(
+    departure_id: str,
+    arrival_id: str,
+    outbound_date: str,
+    airline: str,
+    stops: int = 0,
+    is_basic_economy: bool = False,
+    departure_hour: int = 8,
+) -> dict[str, float]:
+    """
+    Model's predicted price for the target flight date plus the
+    following 7 days (8 dates total) - one call to get_price_prediction
+    per date. Keys are "YYYY-MM-DD" strings, in date order.
+    """
+    start_date = datetime.strptime(outbound_date, "%Y-%m-%d").date()
+    predictions = {}
+    for offset in range(8):
+        this_date = start_date + timedelta(days=offset)
+        this_date_str = this_date.strftime("%Y-%m-%d")
+        predictions[this_date_str] = get_price_prediction(
+            departure_id, arrival_id, this_date_str,
+            airline=airline, stops=stops,
+            is_basic_economy=is_basic_economy, departure_hour=departure_hour,
+        )
+    return predictions
 
 
 if __name__ == "__main__":
