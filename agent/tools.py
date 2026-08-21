@@ -6,6 +6,7 @@ own before wiring them together.
 """
 import os
 from dataclasses import dataclass
+from datetime import date, datetime
 
 import requests
 from dotenv import load_dotenv
@@ -13,6 +14,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SERPAPI_URL = "https://serpapi.com/search.json"
+PREDICTION_API_URL = "https://flight-price-api-j1sh.onrender.com/predict"
+
+# median distance (miles) per route, from our own training data - lets
+# callers just give a route/date without needing to know the distance
+ROUTE_DISTANCES = {
+    ("ATL", "LAX"): 1954, ("LAX", "ATL"): 1963,
+    ("BOS", "LAX"): 2643, ("LAX", "BOS"): 2643,
+    ("CLT", "LAX"): 2266, ("LAX", "CLT"): 2255,
+    ("DFW", "LAX"): 1291, ("LAX", "DFW"): 1242,
+    ("DTW", "LAX"): 2188, ("LAX", "DTW"): 2076,
+    ("EWR", "LAX"): 2466, ("LAX", "EWR"): 2466,
+    ("JFK", "LAX"): 2458, ("LAX", "JFK"): 2466,
+    ("LAX", "LGA"): 2573, ("LGA", "LAX"): 2573,
+    ("LAX", "ORD"): 1751, ("ORD", "LAX"): 1751,
+    ("LGA", "ORD"): 720, ("ORD", "LGA"): 720,
+}
 
 
 @dataclass
@@ -82,9 +99,56 @@ def get_current_price(
     return options
 
 
+def get_price_prediction(
+    departure_id: str,
+    arrival_id: str,
+    outbound_date: str,
+    airline: str,
+    stops: int = 0,
+    is_basic_economy: bool = False,
+    departure_hour: int = 8,
+) -> float:
+    """
+    Call our deployed model (Render) for the expected/typical price of
+    this itinerary. Computes the date-derived features (days until
+    departure, day of week, month) internally so the caller only needs
+    to supply what a real search would naturally have: route, date,
+    airline, stops, cabin, and roughly what time of day.
+    """
+    if (departure_id, arrival_id) not in ROUTE_DISTANCES:
+        raise ValueError(
+            f"No known distance for route {departure_id}-{arrival_id}. "
+            f"Model was only trained on these 20 routes: {sorted(ROUTE_DISTANCES.keys())}"
+        )
+
+    travel_date = datetime.strptime(outbound_date, "%Y-%m-%d").date()
+    days_until_departure = (travel_date - date.today()).days
+
+    payload = {
+        "startingAirport": departure_id,
+        "destinationAirport": arrival_id,
+        "primaryAirline": airline,
+        "flightDayOfWeek": travel_date.isoweekday(),
+        "flightMonth": travel_date.month,
+        "departureHour": departure_hour,
+        "numStops": stops,
+        "totalTravelDistance": ROUTE_DISTANCES[(departure_id, arrival_id)],
+        "daysUntilDeparture": days_until_departure,
+        "isBasicEconomy": is_basic_economy,
+    }
+
+    response = requests.post(PREDICTION_API_URL, json=payload, timeout=30)
+    response.raise_for_status()
+    return response.json()["predictedFare"]
+
+
 if __name__ == "__main__":
     results = get_current_price("LAX", "BOS", "2026-09-24")
     print(f"Found {len(results)} real flight options:\n")
     for opt in results:
         print(f"  ${opt.price:<7.2f} {opt.airline:15s} {opt.flight_number:8s} "
               f"stops={opt.stops} depart={opt.departure_time} class={opt.travel_class}")
+
+    print()
+    predicted = get_price_prediction("LAX", "BOS", "2026-09-24", "Delta", stops=0, departure_hour=8)
+    print(f"Model's predicted price (Delta, ~8am, main cabin): ${predicted:.2f}")
