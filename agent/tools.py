@@ -74,6 +74,9 @@ def get_current_price(
         "currency": "USD",
         "hl": "en",
         "bags": "1",  # at least 1 carry-on bag included
+        "exclude_basic": "true",  # bags=1 alone isn't reliably enforced for every
+                                   # carrier (e.g. Frontier); this guarantees free
+                                   # seat selection + carry-on are actually included
         "api_key": api_key,
     }
 
