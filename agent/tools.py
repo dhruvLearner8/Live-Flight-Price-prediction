@@ -50,7 +50,10 @@ def get_current_price(
 ) -> list[FlightOption]:
     """
     Fetch real, live one-way flight options for a route/date via
-    SerpAPI's Google Flights engine.
+    SerpAPI's Google Flights engine. Always includes 1 carry-on bag in
+    the search (bags=1), so prices reflect the cost of a real trip a
+    traveler would actually take, not a fare that looks artificially
+    cheap because it excludes carry-on baggage.
 
     departure_id / arrival_id: airport codes, e.g. "LAX", "BOS"
     outbound_date: "YYYY-MM-DD"
@@ -70,6 +73,7 @@ def get_current_price(
         "type": "2",  # one-way
         "currency": "USD",
         "hl": "en",
+        "bags": "1",  # at least 1 carry-on bag included
         "api_key": api_key,
     }
 

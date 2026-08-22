@@ -104,6 +104,57 @@ def ask(question: str) -> str:
     return _extract_text(result["messages"][-1].content)
 
 
+def stream_ask(question: str):
+    """
+    Same as ask(), but yields one event per graph node execution, so a
+    UI can show which node is running and its real input/output as it
+    happens, instead of waiting for the final answer.
+
+    Yields dicts: {"node": "model"|"tools", "input": str, "output": str}
+    """
+    agent = build_agent()
+    pending_tool_calls = {}  # tool_call_id -> "tool_name(args)" string
+
+    for chunk in agent.stream(
+        {"messages": [{"role": "user", "content": question}]},
+        stream_mode="updates",
+    ):
+        for node_name, update in chunk.items():
+            messages = update.get("messages", [])
+
+            if node_name == "model":
+                last_message = messages[-1]
+                tool_calls = getattr(last_message, "tool_calls", None) or []
+                if tool_calls:
+                    calls_text = []
+                    for call in tool_calls:
+                        args_text = ", ".join(f"{k}={v!r}" for k, v in call["args"].items())
+                        call_text = f"{call['name']}({args_text})"
+                        pending_tool_calls[call["id"]] = call_text
+                        calls_text.append(call_text)
+                    yield {
+                        "node": "model",
+                        "input": question if not pending_tool_calls else "(conversation so far)",
+                        "output": "Decided to call: " + "; ".join(calls_text),
+                    }
+                else:
+                    yield {
+                        "node": "model",
+                        "input": "(conversation so far)",
+                        "output": _extract_text(last_message.content),
+                    }
+
+            elif node_name == "tools":
+                for message in messages:
+                    call_id = getattr(message, "tool_call_id", None)
+                    call_text = pending_tool_calls.get(call_id, "(unknown tool call)")
+                    yield {
+                        "node": "tools",
+                        "input": call_text,
+                        "output": _extract_text(message.content),
+                    }
+
+
 if __name__ == "__main__":
     answer = ask("Should I book a flight from LAX to BOS on 2026-09-24?")
     print(answer)
