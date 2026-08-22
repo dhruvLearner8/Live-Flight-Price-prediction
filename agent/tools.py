@@ -47,6 +47,7 @@ def get_current_price(
     departure_id: str,
     arrival_id: str,
     outbound_date: str,
+    include_airlines: list[str] | None = None,
 ) -> list[FlightOption]:
     """
     Fetch real, live one-way flight options for a route/date via
@@ -57,6 +58,9 @@ def get_current_price(
 
     departure_id / arrival_id: airport codes, e.g. "LAX", "BOS"
     outbound_date: "YYYY-MM-DD"
+    include_airlines: optional list of 2-letter IATA airline codes to
+        restrict results to, e.g. ["DL", "AA", "AS"] for Delta,
+        American, Alaska. None (default) returns all airlines.
 
     Returns a list of FlightOption, sorted cheapest first. Combines
     SerpAPI's "best_flights" (Google's curated top picks) and
@@ -79,6 +83,8 @@ def get_current_price(
                                    # seat selection + carry-on are actually included
         "api_key": api_key,
     }
+    if include_airlines:
+        params["include_airlines"] = ",".join(include_airlines)
 
     response = requests.get(SERPAPI_URL, params=params, timeout=30)
     response.raise_for_status()
