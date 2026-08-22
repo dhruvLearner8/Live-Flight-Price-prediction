@@ -98,16 +98,49 @@ curl -X POST https://flight-price-api-j1sh.onrender.com/predict \
 
 Note: free tier spins down after 15 minutes idle; the first request after that takes ~30-50s to wake up.
 
+## Layer 2: LangGraph buy/wait agent
+
+**Live price data:** `agent/tools.py`'s `get_current_price` calls SerpAPI's `google_flights` engine — the same data a real user would see searching Google Flights, not a generic web scrape. Verified once against a manual Delta.com search early on; the automated results matched exactly ($439/$549/$689 for the same three flights).
+
+**The day-by-day trend tool changed shape from the original plan.** The original idea (`get_price_trend(days=7)`, forecasting whether waiting N more days lowers the price for a *fixed* flight) was tested and rejected: the model's predicted price barely moved (~$470-484) across a 7-day booking window, since `daysUntilDeparture` is one of the model's weaker features — asking it to resolve day-by-day timing was asking too much of a signal that thin. The tool that shipped instead, `get_price_prediction_next_7_days`, predicts the target flight date **plus the following 7 calendar dates** (varying which day you'd *fly*, not which day you'd *book*) — a comparison that's actually well-supported by the model, since route/season/day-of-week are strong, validated signals.
+
+**Live-price calibration was designed, tested with real data, and then deliberately dropped.** The idea: correct the model's stale 2022 dollar predictions using a ratio computed from real SerpAPI lookups (`agent/compute_calibration.py`). Measuring it properly across 3 routes gave ratios from **0.34 to 1.73** — no consistent factor, varying by route, by how far out the booking is, and even by airline (American Airlines showed erratic outlier pricing on every date tested). Beyond the instability, the approach had a deeper logical flaw: if you're already calling SerpAPI live to compute the calibration ratio, you already have the real price you need — routing it through a "corrected" stale model prediction adds nothing and just obscures where the real signal actually came from. **Dropped in favor of showing both numbers honestly, uncombined**: the model's prediction (a historical/structural estimate — "what does a flight like this typically cost") and the live SerpAPI price (what it costs right now), let the agent's reasoning weigh them rather than mechanically merging them into one number.
+
+**The agent itself** (`agent/langgraph_agent.py`) is built with `langchain.agents.create_agent` (LangGraph under the hood) and Gemini 3.5 Flash, with two tools — `search_live_flight_prices` and `predict_price_trend` — that the LLM decides whether and when to call, rather than a hardcoded sequence. The system prompt explicitly tells it the model is 2022-trained and to treat its dollars as directional, not absolute. Compiled graph structure:
+
+```mermaid
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	model(model)
+	tools(tools)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> model;
+	model -.-> __end__;
+	model -.-> tools;
+	tools -.-> model;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
+The `model ⇄ tools` loop is a real decision point each run (dotted = conditional edge) — a standard ReAct pattern: the LLM reasons, calls a tool, observes the result, and repeats until it has enough to answer.
+
+**Example real output** (LAX→BOS, Sept 24 2026):
+
+> **BOOK NOW**
+>
+> We highly recommend booking your flight now. Live prices for a non-stop flight from LAX to BOS on September 24, 2026, are currently starting at an exceptionally low **$199** on Delta, with United offering a flight for **$218**. Historical data suggests that average fares for this route in late September typically hover in the upper $300s (around $392), meaning the current price is a fantastic bargain and unlikely to drop any lower.
+
+`agent/reasoning.py` is an earlier, simpler version kept for reference — same two data sources, but always called in a fixed sequence rather than left to the LLM's judgement.
+
 ## Roadmap (not yet built)
 
-- **LangGraph buy/wait agent** on top of this API: takes route/date/budget, compares the model's expected price against a live price fetched via SerpAPI, and returns a plain-English buy/wait recommendation.
-- **Live price calibration**: rather than trusting the 2022-trained model's absolute dollar predictions at face value in 2026, compute a correction ratio from a handful of real SerpAPI lookups vs. model predictions for the same itineraries, and apply it before comparing to the live price. This was designed after finding the raw model prediction can drift from current real prices (validated against an actual Delta.com quote — see project history).
-- **"Best of the next 7 days" comparison**, not a day-by-day trend forecast: an earlier design (`get_price_trend(days=7)`, forecasting whether waiting N more days lowers price for a fixed flight) was tested and found unreliable — the model's predicted price barely moved (~$470-484) across a 7-day booking window, since `daysUntilDeparture` is one of the weaker features. Replaced with a sounder idea: compare live + predicted prices across 7 *upcoming candidate flight dates*, all checkable today, rather than trying to forecast a future that hasn't happened yet.
-- **Streamlit UI** so a user can interact with the agent without hitting the API directly.
+- **Streamlit UI** so a user can interact with the agent without running Python directly.
+- **FastAPI endpoint for the agent** itself (currently only the price-prediction model is deployed as an API; the agent runs locally).
 
 ## Tech stack
 
-Python, Polars (large-file processing via lazy/streaming scans), scikit-learn, XGBoost, LightGBM, SHAP, MLflow, FastAPI, Render. Planned: LangGraph, SerpAPI, Streamlit.
+Python, Polars (large-file processing via lazy/streaming scans), scikit-learn, XGBoost, LightGBM, SHAP, MLflow, FastAPI, Render, LangGraph/LangChain, Gemini 3.5 Flash, SerpAPI. Planned: Streamlit.
 
 ## Repo structure
 
@@ -129,6 +162,12 @@ notebooks/
   03_route_layover_price.ipynb    # focused deep-dive: route x stops price interaction
 api/
   main.py                 # FastAPI app serving model_artifact.joblib
+agent/
+  tools.py                 # get_current_price (SerpAPI), get_price_prediction (calls Render API),
+                            # get_price_prediction_next_7_days
+  compute_calibration.py   # one-off: measured live-vs-predicted ratios across routes (see Layer 2 section)
+  reasoning.py             # simple fixed-sequence agent (reference/earlier version)
+  langgraph_agent.py       # the real LangGraph agent - LLM decides which tools to call
 model_artifact.joblib      # trained XGBoost pipeline, committed (small, ~1.4MB)
 requirements.txt           # minimal deps for the deployed API (not the full dev environment)
 render.yaml                 # Render Blueprint config
