@@ -37,14 +37,21 @@ doesn't support. Only 10 routes are supported: ATL, LAX, LGA, BOS, JFK, DFW, ORD
 (pairs connecting to/from LAX, plus LGA-ORD). If asked about an unsupported route, say so."""
 
 
+SUPPORTED_AIRLINES = ["DL", "AA", "AS"]  # Delta, American, Alaska only
+
+
 @tool
 def search_live_flight_prices(departure_id: str, arrival_id: str, outbound_date: str) -> str:
     """Fetch real, live one-way flight prices for a route and date via Google Flights.
+    Restricted to Delta, American, and Alaska.
 
     departure_id / arrival_id: airport codes, e.g. "LAX", "BOS"
     outbound_date: "YYYY-MM-DD"
     """
-    options = get_current_price(departure_id, arrival_id, outbound_date)
+    options = get_current_price(
+        departure_id, arrival_id, outbound_date,
+        include_airlines=SUPPORTED_AIRLINES,
+    )
     lines = [
         f"${o.price:.2f}  {o.airline} {o.flight_number}  stops={o.stops}  "
         f"depart={o.departure_time}  class={o.travel_class}"
