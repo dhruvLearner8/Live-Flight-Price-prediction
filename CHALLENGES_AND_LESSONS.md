@@ -187,9 +187,9 @@ Being honest about the ceiling here matters more than overselling it:
   easier split. This was a deliberate choice for rigor, not an oversight — but
   it does mean the headline numbers look less impressive than a random split
   would have produced.
-- **The agent currently only runs locally**, not deployed publicly, and only
-  supports 10 airports / 20 routes by design (the ones with enough training
-  data to trust).
+- **The agent only supports 10 airports / 20 routes by design** (the ones with
+  enough training data to trust), even though it's now deployed publicly via
+  the Streamlit UI.
 
 ## What this project actually taught me about being an ML practitioner
 

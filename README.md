@@ -2,6 +2,8 @@
 
 ML pipeline that predicts US domestic flight prices, built on the [dilwong/flightprices](https://www.kaggle.com/datasets/dilwong/flightprices) Kaggle dataset (Expedia scrape, ~82M rows / ~30GB uncompressed).
 
+**Live demo:** [live-flight-price-prediction.streamlit.app](https://live-flight-price-prediction-fyfufgjba73fga3fdddczv.streamlit.app/) — pick a route and date, get a real buy/wait recommendation from the agent (Layer 2 below). Prediction API alone: `https://flight-price-api-j1sh.onrender.com/predict` (see [Deployment](#deployment)).
+
 ## Dataset
 
 - **Full raw data**: `itineraries.csv`, ~82.1M rows, 27 columns, one row per itinerary returned by a price search.
@@ -133,14 +135,19 @@ The `model ⇄ tools` loop is a real decision point each run (dotted = condition
 
 `agent/reasoning.py` is an earlier, simpler version kept for reference — same two data sources, but always called in a fixed sequence rather than left to the LLM's judgement.
 
+### UI deployment
+
+`streamlit_app.py` gives the agent a UI — pick a route and date, see the live execution graph highlight each node as the agent reasons, and get the final buy/wait recommendation with the model's 8-day price chart and the live SerpAPI price alongside it. Deployed on **Streamlit Community Cloud**, live at the link above; it calls the same Render `/predict` API rather than loading the model itself.
+
+**Gotcha hit during this deploy:** Streamlit Cloud secrets land in `st.secrets`, not `os.environ` — but `agent/tools.py` and `agent/langgraph_agent.py` read their API keys via `os.environ` (so the same code also works locally via `python-dotenv` and a `.env` file). `streamlit_app.py` bridges the two explicitly at startup, copying `SERPAPI_API_KEY` and `GEMINI_API_KEY` from `st.secrets` into `os.environ` before the agent modules are used.
+
 ## Roadmap (not yet built)
 
-- **Streamlit UI** so a user can interact with the agent without running Python directly.
-- **FastAPI endpoint for the agent** itself (currently only the price-prediction model is deployed as an API; the agent runs locally).
+- **FastAPI endpoint for the agent** itself (currently only the price-prediction model is deployed as its own API; the agent runs inside the Streamlit app process).
 
 ## Tech stack
 
-Python, Polars (large-file processing via lazy/streaming scans), scikit-learn, XGBoost, LightGBM, SHAP, MLflow, FastAPI, Render, LangGraph/LangChain, Gemini 3.5 Flash, SerpAPI. Planned: Streamlit.
+Python, Polars (large-file processing via lazy/streaming scans), scikit-learn, XGBoost, LightGBM, SHAP, MLflow, FastAPI, Render, LangGraph/LangChain, Gemini 3.5 Flash, SerpAPI, Streamlit (Streamlit Community Cloud).
 
 ## Repo structure
 
@@ -168,8 +175,9 @@ agent/
   compute_calibration.py   # one-off: measured live-vs-predicted ratios across routes (see Layer 2 section)
   reasoning.py             # simple fixed-sequence agent (reference/earlier version)
   langgraph_agent.py       # the real LangGraph agent - LLM decides which tools to call
+streamlit_app.py           # UI for the agent, deployed on Streamlit Community Cloud
 model_artifact.joblib      # trained XGBoost pipeline, committed (small, ~1.4MB)
-requirements.txt           # minimal deps for the deployed API (not the full dev environment)
+requirements.txt           # deps for both the Render API and the Streamlit Cloud UI
 render.yaml                 # Render Blueprint config
 airport_reference.md       # airport code -> name mapping, route list
 ```
