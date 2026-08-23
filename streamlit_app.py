@@ -11,8 +11,15 @@ stream_ask() rather than waiting for just the final answer.
 Run with: uv run streamlit run streamlit_app.py
 """
 import datetime
+import os
 
 import streamlit as st
+
+# Streamlit Cloud secrets land in st.secrets, not os.environ - bridge them
+# here since agent/*.py reads its API keys via os.environ.
+for _key in ("SERPAPI_API_KEY", "GEMINI_API_KEY"):
+    if _key in st.secrets:
+        os.environ[_key] = st.secrets[_key]
 
 from agent.langgraph_agent import stream_ask
 from agent.tools import ROUTE_DISTANCES
@@ -94,6 +101,9 @@ if run_clicked:
         trace_container = trace_placeholder.container()
 
     final_answer = None
+    model_predictions = None  # {date_str: price} from predict_price_trend, if called
+    live_prices_summary = None  # raw text from search_live_flight_prices, if called
+
     try:
         for event in stream_ask(question):
             node = event["node"]
@@ -104,6 +114,14 @@ if run_clicked:
                 active = "tools" if "Decided to call" in event["output"] else "__end__"
             elif node == "tools":
                 active = "model"
+
+            if node == "tools" and event["input"].startswith("predict_price_trend"):
+                model_predictions = {}
+                for line in event["output"].splitlines():
+                    date_str, price_str = line.split(": $")
+                    model_predictions[date_str] = float(price_str)
+            elif node == "tools" and event["input"].startswith("search_live_flight_prices"):
+                live_prices_summary = event["output"]
 
             with right_col:
                 graph_placeholder.graphviz_chart(make_graph_dot(active, visited))
@@ -126,6 +144,20 @@ if run_clicked:
             st.error(f"Something went wrong: {e}")
 
     with left_col:
+        if model_predictions:
+            st.markdown("### Model's predicted price (next 8 days)")
+            st.caption("Trained on 2022 historical data - directional pattern, not exact current price.")
+            st.line_chart(model_predictions)
+            target_date_str = travel_date.isoformat()
+            if target_date_str in model_predictions:
+                st.metric(f"Model prediction for {target_date_str}", f"${model_predictions[target_date_str]:.2f}")
+
+        if live_prices_summary:
+            cheapest_line = live_prices_summary.splitlines()[0]
+            st.markdown("### Live price (Google Flights, via SerpAPI)")
+            st.caption("Real, current prices - includes 1 carry-on bag.")
+            st.text(cheapest_line)
+
         with answer_placeholder:
             if final_answer:
                 st.markdown("### Recommendation")
